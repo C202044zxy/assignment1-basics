@@ -1,5 +1,7 @@
 import os
 from typing import BinaryIO
+import regex as re
+from multiprocessing import Pool
 
 
 def find_chunk_boundaries(
@@ -49,14 +51,82 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-## Usage
-with open(..., "rb") as f:
-    num_processes = 4
-    boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
-
-    # The following is a serial implementation, but you can parallelize this
-    # by sending each start/end pair to a set of processes.
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
+def process_chunk(args) -> dict[tuple[bytes, ...], int]:
+    input_path, start, end, special_tokens = args
+    with open(input_path, "rb") as f:
         f.seek(start)
         chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
+
+    PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    table = {}
+    escaped_tokens = [re.escape(token) for token in special_tokens]
+    pattern = "|".join(escaped_tokens)
+    pieces = re.split(pattern, chunk)
+    for piece in pieces:
+        matches = re.finditer(PAT, piece)
+        for match in matches:
+            key = tuple(bytes([b]) for b in match.group().encode("utf-8"))
+            table[key] = table.get(key, 0) + 1
+    return table
+
+
+def pretokenize(input_path: str | os.PathLike, special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
+    frequency_table = {}
+    with open(input_path, "rb") as f:
+        num_processes = 4
+        boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+
+        with Pool(num_processes) as pool:
+            results = pool.map(
+                process_chunk,
+                [(input_path, start, end, special_tokens) for start, end in zip(boundaries[:-1], boundaries[1:])],
+            )
+        for table in results:
+            for key, value in table.items():
+                frequency_table[key] = frequency_table.get(key, 0) + value
+    return frequency_table
+
+
+def merge(frequency_table: dict[tuple[bytes, ...], int]) -> tuple[dict[tuple[bytes, ...], int], tuple[bytes, bytes]]:
+    # count adjacent pairs
+    pair_count = {}
+    for key, value in frequency_table.items():
+        for first, second in zip(key[:-1], key[1:]):
+            pair = tuple([first, second])
+            pair_count[pair] = pair_count.get(pair, 0) + value
+    # select the pair with max weight, tiebreak by max lexicographic order
+    best_pair = max(pair_count.keys(), key=lambda p: (pair_count[p], p))
+    merged_table = {}
+    for key, value in frequency_table.items():
+        new_key = []
+        i = 0
+        while i < len(key):
+            if i + 1 < len(key) and key[i] == best_pair[0] and key[i + 1] == best_pair[1]:
+                new_key.append(best_pair[0] + best_pair[1])
+                i += 2
+            else:
+                new_key.append(key[i])
+                i += 1
+        merged_table[tuple(new_key)] = merged_table.get(tuple(new_key), 0) + value
+    return (merged_table, best_pair)
+
+
+def train_bpe(
+    input_path: str | os.PathLike, vocab_size: int, special_tokens: list[str]
+) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    vocab = {}
+    for i, special_token in enumerate(special_tokens):
+        vocab[i] = special_token.encode()
+    for i in range(256):
+        vocab[i + len(special_tokens)] = bytes([i])
+    merge_count = vocab_size - len(special_tokens) - 256
+    if merge_count <= 0:
+        return tuple(vocab, {})
+
+    merges = []
+    frequency_table = pretokenize(input_path, special_tokens)
+    for i in range(merge_count):
+        frequency_table, best_pair = merge(frequency_table)
+        vocab[i + len(special_tokens) + 256] = best_pair[0] + best_pair[1]
+        merges.append(best_pair)
+    return (vocab, merges)
