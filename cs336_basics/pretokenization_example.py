@@ -87,28 +87,73 @@ def pretokenize(input_path: str | os.PathLike, special_tokens: list[str]) -> dic
     return frequency_table
 
 
-def merge(frequency_table: dict[tuple[bytes, ...], int]) -> tuple[dict[tuple[bytes, ...], int], tuple[bytes, bytes]]:
-    # count adjacent pairs
+def build_pair_counts(frequency_table: dict[tuple[bytes, ...], int]) -> dict[tuple[bytes, bytes], int]:
+    """Build initial pair counts from frequency table."""
     pair_count = {}
     for key, value in frequency_table.items():
         for first, second in zip(key[:-1], key[1:]):
-            pair = tuple([first, second])
+            pair = (first, second)
             pair_count[pair] = pair_count.get(pair, 0) + value
-    # select the pair with max weight, tiebreak by max lexicographic order
+    return pair_count
+
+
+def merge_optimized(
+    frequency_table: dict[tuple[bytes, ...], int],
+    pair_count: dict[tuple[bytes, bytes], int],
+) -> tuple[dict[tuple[bytes, ...], int], dict[tuple[bytes, bytes], int], tuple[bytes, bytes]]:
+    """
+    Optimized merge that incrementally updates pair counts.
+    Only updates counts for pairs that overlap with the merged pair.
+    """
+    # Select best pair
     best_pair = max(pair_count.keys(), key=lambda p: (pair_count[p], p))
+    merged_token = best_pair[0] + best_pair[1]
+
+    # Remove the merged pair from counts
+    del pair_count[best_pair]
+
     merged_table = {}
     for key, value in frequency_table.items():
         new_key = []
         i = 0
         while i < len(key):
             if i + 1 < len(key) and key[i] == best_pair[0] and key[i + 1] == best_pair[1]:
-                new_key.append(best_pair[0] + best_pair[1])
+                # Before merging: ... [i-1] [i] [i+1] [i+2] ...
+                # After merging:  ... [i-1] [merged] [i+2] ...
+
+                # Decrement count for pair (key[i-1], key[i]) - it no longer exists
+                if i > 0:
+                    old_left_pair = (key[i - 1], key[i])
+                    pair_count[old_left_pair] = pair_count.get(old_left_pair, 0) - value
+                    if pair_count[old_left_pair] <= 0:
+                        pair_count.pop(old_left_pair, None)
+
+                # Decrement count for pair (key[i+1], key[i+2]) - it no longer exists
+                if i + 2 < len(key):
+                    old_right_pair = (key[i + 1], key[i + 2])
+                    pair_count[old_right_pair] = pair_count.get(old_right_pair, 0) - value
+                    if pair_count[old_right_pair] <= 0:
+                        pair_count.pop(old_right_pair, None)
+
+                # Increment count for new pair (key[i-1], merged_token)
+                if i > 0:
+                    new_left_pair = (key[i - 1], merged_token)
+                    pair_count[new_left_pair] = pair_count.get(new_left_pair, 0) + value
+
+                # Increment count for new pair (merged_token, key[i+2])
+                if i + 2 < len(key):
+                    new_right_pair = (merged_token, key[i + 2])
+                    pair_count[new_right_pair] = pair_count.get(new_right_pair, 0) + value
+
+                new_key.append(merged_token)
                 i += 2
             else:
                 new_key.append(key[i])
                 i += 1
+
         merged_table[tuple(new_key)] = merged_table.get(tuple(new_key), 0) + value
-    return (merged_table, best_pair)
+
+    return (merged_table, pair_count, best_pair)
 
 
 def train_bpe(
@@ -125,8 +170,12 @@ def train_bpe(
 
     merges = []
     frequency_table = pretokenize(input_path, special_tokens)
+
+    # Build initial pair counts once
+    pair_count = build_pair_counts(frequency_table)
+
     for i in range(merge_count):
-        frequency_table, best_pair = merge(frequency_table)
+        frequency_table, pair_count, best_pair = merge_optimized(frequency_table, pair_count)
         vocab[i + len(special_tokens) + 256] = best_pair[0] + best_pair[1]
         merges.append(best_pair)
     return (vocab, merges)
