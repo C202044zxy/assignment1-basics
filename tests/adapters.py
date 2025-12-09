@@ -91,14 +91,11 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    
+
     from cs336_basics.transformer import SwiGLU
+
     swiglu = SwiGLU(d_model, d_ff)
-    swiglu.load_state_dict({
-        "w1": w1_weight,
-        "w2": w2_weight,
-        "w3": w3_weight
-    })
+    swiglu.load_state_dict({"w1": w1_weight, "w2": w2_weight, "w3": w3_weight})
     return swiglu(in_features)
 
 
@@ -216,7 +213,11 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+
+    from cs336_basics.transformer import RoPE
+
+    rope = RoPE(theta, d_k, max_seq_len)
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(

@@ -35,3 +35,22 @@ class SwiGLU(nn.Module):
         x1 = x1 * torch.sigmoid(x1)
         x2 = einsum(x, self.w3, "... d_model, d_ff d_model -> ... d_ff")
         return einsum(x1 * x2, self.w2, "... d_ff, d_model d_ff -> ... d_model")
+
+
+class RoPE(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device: torch.device | None = None):
+        super().__init__()
+        i = torch.arange(0, max_seq_len).float()[:, None]
+        j = torch.arange(0, d_k, 2).float()[None, :]
+        theta_ij = i / (theta ** (j / d_k))
+        # self.cos = torch.cos(theta_ij)
+        # self.sin = torch.sin(theta_ij)
+        self.register_buffer("cos", torch.cos(theta_ij), persistent=False)
+        self.register_buffer("sin", torch.sin(theta_ij), persistent=False)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        cos_pos = self.cos[token_positions, :]
+        sin_pos = self.sin[token_positions, :]
+        q0 = x[..., 0::2]
+        q1 = x[..., 1::2]
+        return torch.stack((q0 * cos_pos - q1 * sin_pos, q0 * sin_pos + q1 * cos_pos), dim=-1).flatten(-2)
