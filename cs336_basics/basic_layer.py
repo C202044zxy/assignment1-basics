@@ -8,13 +8,13 @@ class Linear(nn.Module):
         self, in_features: int, out_features: int, device: torch.device | None = None, dtype: torch.dtype | None = None
     ):
         super().__init__()
-        self.W = nn.Parameter(torch.empty(out_features, in_features, device=device, dtype=dtype))
+        self.weight = nn.Parameter(torch.empty(out_features, in_features, device=device, dtype=dtype))
         variance = 2 / (in_features + out_features)
         std = variance**0.5
-        nn.init.trunc_normal_(self.W, mean=0, std=std, a=-3 * std, b=3 * std)
+        nn.init.trunc_normal_(self.weight, mean=0, std=std, a=-3 * std, b=3 * std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return einsum(x, self.W, "... d_in, d_out d_in -> ... d_out")
+        return einsum(x, self.weight, "... d_in, d_out d_in -> ... d_out")
 
 
 class Embedding(nn.Module):
@@ -26,8 +26,8 @@ class Embedding(nn.Module):
         dtype: torch.dtype | None = None,
     ):
         super().__init__()
-        self.embeddings = nn.Parameter(torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype))
-        nn.init.trunc_normal_(self.embeddings, 0, 1, -3, 3)
+        self.weight = nn.Parameter(torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype))
+        nn.init.trunc_normal_(self.weight, 0, 1, -3, 3)
 
     def forward(self, token_ids: torch.LongTensor) -> torch.Tensor:
-        return self.embeddings[token_ids]
+        return self.weight[token_ids]

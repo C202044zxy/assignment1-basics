@@ -4,6 +4,8 @@ from einops import einsum
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
+from cs336_basics.basic_layer import *
+
 
 class RMSNorm(nn.Module):
     def __init__(
@@ -12,7 +14,7 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.eps = eps
         self.d_model = d_model
-        self.g = nn.Parameter(torch.ones(d_model, device=device, dtype=dtype))
+        self.weight = nn.Parameter(torch.ones(d_model, device=device, dtype=dtype))
 
     def forward(self, x: Tensor) -> Tensor:
         in_dtype = x.dtype
@@ -20,7 +22,7 @@ class RMSNorm(nn.Module):
 
         sqr = x**2
         rms = torch.sqrt(sqr.mean(-1, keepdim=True) + self.eps)
-        x_normed = x / rms * self.g
+        x_normed = x / rms * self.weight
 
         return x_normed.to(in_dtype)
 
@@ -28,15 +30,15 @@ class RMSNorm(nn.Module):
 class SwiGLU(nn.Module):
     def __init__(self, d_model: int, d_ff: int, device: torch.device | None = None, dtype: torch.dtype | None = None):
         super().__init__()
-        self.w1 = nn.Parameter(torch.ones(d_ff, d_model, device=device, dtype=dtype))
-        self.w2 = nn.Parameter(torch.ones(d_model, d_ff, device=device, dtype=dtype))
-        self.w3 = nn.Parameter(torch.ones(d_ff, d_model, device=device, dtype=dtype))
+        self.w1 = Linear(d_model, d_ff, device, dtype)
+        self.w2 = Linear(d_ff, d_model, device, dtype)
+        self.w3 = Linear(d_model, d_ff, device, dtype)
 
     def forward(self, x: Tensor) -> Tensor:
-        x1 = einsum(x, self.w1, "... d_model, d_ff d_model -> ... d_ff")
+        x1 = self.w1(x)
         x1 = x1 * torch.sigmoid(x1)
-        x2 = einsum(x, self.w3, "... d_model, d_ff d_model -> ... d_ff")
-        return einsum(x1 * x2, self.w2, "... d_ff, d_model d_ff -> ... d_model")
+        x2 = self.w3(x)
+        return self.w2(x1 * x2)
 
 
 class RoPE(nn.Module):
@@ -96,15 +98,15 @@ class SelfAttention(nn.Module):
             # use rope
             self.rope = RoPE(theta, self.d_k, max_seq_len, device)
 
-        self.wq = nn.Parameter(torch.ones(d_model, d_model, device=device, dtype=dtype))
-        self.wk = nn.Parameter(torch.ones(d_model, d_model, device=device, dtype=dtype))
-        self.wv = nn.Parameter(torch.ones(d_model, d_model, device=device, dtype=dtype))
-        self.wo = nn.Parameter(torch.ones(d_model, d_model, device=device, dtype=dtype))
+        self.q_proj = Linear(d_model, d_model, device, dtype)
+        self.k_proj = Linear(d_model, d_model, device, dtype)
+        self.v_proj = Linear(d_model, d_model, device, dtype)
+        self.output_proj = Linear(d_model, d_model, device, dtype)
 
     def forward(self, x: Tensor, token_positions: Tensor | None = None) -> Tensor:
-        q = einsum(x, self.wq, "... i, j i -> ... j")
-        k = einsum(x, self.wk, "... i, j i -> ... j")
-        v = einsum(x, self.wv, "... i, j i -> ... j")
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
 
         seq_len = x.shape[-2]
         mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device)).bool()
@@ -120,4 +122,58 @@ class SelfAttention(nn.Module):
             head_outputs.append(scaled_dot_product_attention(q_head, k_head, v_head, mask))
 
         multi_head = torch.cat(head_outputs, dim=-1)
-        return einsum(multi_head, self.wo, "... i, j i -> ... j")
+        return self.output_proj(multi_head)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        max_seq_len: int,
+        theta: float,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        self.ln1 = RMSNorm(d_model, device=device, dtype=dtype)
+        self.attn = SelfAttention(d_model, num_heads, max_seq_len, theta, device, dtype)
+        self.ln2 = RMSNorm(d_model, device=device, dtype=dtype)
+        self.ffn = SwiGLU(d_model, d_ff, device, dtype)
+
+    def forward(self, x: Tensor) -> Tensor:
+        y = x + self.attn(self.ln1(x), torch.arange(x.shape[-2], device=x.device))
+        return y + self.ffn(self.ln2(y))
+
+
+class TransformerLM(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        d_model: int,
+        num_layers: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        self.token_embeddings = Embedding(vocab_size, d_model, device, dtype)
+        self.layers = nn.ModuleList(
+            [
+                TransformerBlock(d_model, num_heads, d_ff, context_length, rope_theta, device, dtype)
+                for _ in range(num_layers)
+            ]
+        )
+        self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
+        self.lm_head = Linear(d_model, vocab_size, device, dtype)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.token_embeddings(x)
+        for layer in self.layers:
+            x = layer(x)
+        x = self.ln_final(x)
+        return self.lm_head(x)
