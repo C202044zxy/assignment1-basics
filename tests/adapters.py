@@ -530,7 +530,8 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    from cs336_basics.train import AdamW
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
