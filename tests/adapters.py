@@ -29,7 +29,7 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
 
-    from cs336_basics.basic_layer import Linear
+    from cs336_basics.transformer import Linear
 
     linear = Linear(d_in, d_out)
     linear.load_state_dict({"weight": weights})
@@ -55,7 +55,7 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    from cs336_basics.basic_layer import Embedding
+    from cs336_basics.transformer import Embedding
 
     embedding = Embedding(vocab_size, d_model)
     embedding.load_state_dict({"weight": weights})
@@ -660,6 +660,6 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    from cs336_basics.train_bpe import train_bpe
+    from cs336_basics.bpe import train_bpe
 
     return train_bpe(input_path, vocab_size, special_tokens)
