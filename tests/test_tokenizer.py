@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 import sys
 
 import psutil
@@ -18,6 +21,9 @@ MERGES_PATH = FIXTURES_PATH / "gpt2_merges.txt"
 
 def memory_limit(max_mem):
     def decorator(f):
+        if resource is None:
+            return f
+
         def wrapper(*args, **kwargs):
             process = psutil.Process(os.getpid())
             prev_limits = resource.getrlimit(resource.RLIMIT_AS)
