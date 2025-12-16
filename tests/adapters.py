@@ -474,7 +474,7 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    from cs336_basics.training import get_batch
+    from cs336_basics.utils import get_batch
 
     return get_batch(dataset, batch_size, context_length, device)
 
@@ -512,9 +512,9 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    from cs336_basics.optimizer import cross_entroy
+    from cs336_basics.optimizer import cross_entropy
 
-    return cross_entroy(inputs, targets)
+    return cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -586,7 +586,7 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    from cs336_basics.training import save_checkpoint
+    from cs336_basics.utils import save_checkpoint
 
     return save_checkpoint(model, optimizer, iteration, out)
 
@@ -609,7 +609,7 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    from cs336_basics.training import load_checkpoint
+    from cs336_basics.utils import load_checkpoint
 
     return load_checkpoint(src, model, optimizer)
 

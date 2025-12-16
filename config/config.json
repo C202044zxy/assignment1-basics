@@ -1,0 +1,39 @@
+{
+  "train_data": "data/train.bin",
+  "val_data": "data/val.bin",
+  "dtype": "int64",
+
+  "batch_size": 64,
+  "context_length": 256,
+  "device": "cpu",
+
+  "vocab_size": 50257,
+  "d_model": 512,
+  "num_layers": 8,
+  "num_heads": 8,
+  "d_ff": 2048,
+  "rope_theta": 10000.0,
+
+  "lr": 3e-4,
+  "weight_decay": 0.01,
+  "beta1": 0.9,
+  "beta2": 0.95,
+  "eps": 1e-8,
+
+  "wandb_project": "cs336-basics",
+  "wandb_run_name": "transformer-lm-run",
+
+  "resume": "",
+  "ckpt_dir": "checkpoints",
+  "max_iter": 10000,
+  "lr_max": 3e-4,
+  "lr_min": 3e-5,
+  "warmup_iters": 1000,
+  "cosine_iters": 9000,
+  "grad_clip": 1.0,
+  "eval_iter": 500,
+  "eval_runs": 10,
+  "ckpt_iter": 1000
+}
+
+

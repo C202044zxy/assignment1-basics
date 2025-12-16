@@ -6,7 +6,7 @@ from typing import Optional
 import math
 
 
-def cross_entroy(
+def cross_entropy(
     inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
 ) -> Float[Tensor, ""]:
     max_logit = inputs.max(dim=-1, keepdim=True).values
