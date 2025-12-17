@@ -52,9 +52,16 @@ def nucleus_sampling(logits: Tensor, threshold: float):
 
 def decode(model: torch.nn.Module, tokenizer: Tokenizer, prompt: str, token_limit: int, temperature: float, threshold: float) -> str:
     model.eval()
-    tokens = tokenizer.encode(prompt)
+    tokens: list[int] = tokenizer.encode(prompt)
+    # RoPE/attention are defined for a fixed context length; keep a sliding window.
+    context_length = getattr(model, "context_length", None)
+    if not isinstance(context_length, int) or context_length <= 0:
+        raise ValueError("Model is missing a valid `context_length` attribute; cannot decode safely.")
+
     while len(tokens) < token_limit:
-        logits = model(tokens)[-1]
+        window = tokens[-context_length:]
+        x = torch.tensor(window, dtype=torch.long, device=next(model.parameters()).device)[None, :]
+        logits = model(x)[0, -1]
         logits = logits / temperature
         next_token = nucleus_sampling(logits, threshold)
         tokens.append(next_token)
@@ -65,7 +72,7 @@ def decode(model: torch.nn.Module, tokenizer: Tokenizer, prompt: str, token_limi
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--conf", type=str, default=CONF_DIR / "config.json")
-    parser.add_argument("--token_limit", type=int, default=100)
+    parser.add_argument("--token_limit", type=int, default=200)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--threshold", type=float, default=0.95)
     args = parser.parse_args()

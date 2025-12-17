@@ -190,6 +190,8 @@ class TransformerLM(nn.Module):
         dtype: torch.dtype | None = None,
     ):
         super().__init__()
+        # Needed for decoding: RoPE tables and attention masks are only valid up to this length.
+        self.context_length = context_length
         self.token_embeddings = Embedding(vocab_size, d_model, device, dtype)
         self.layers = nn.ModuleList(
             [
