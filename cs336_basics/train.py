@@ -4,7 +4,6 @@ import torch
 import json
 from pathlib import Path
 import argparse
-import wandb
 import numpy as np
 import os
 
@@ -39,6 +38,30 @@ def _torch_dtype_from_str(dtype: str | None) -> torch.dtype | None:
         t = getattr(torch, dtype, None)
         return t if isinstance(t, torch.dtype) else None
     return None
+
+
+def _bytes_per_elem(dtype: torch.dtype) -> int:
+    # Minimal mapping for common dtypes used in this repo.
+    if dtype in (torch.float16, torch.bfloat16, torch.int16, torch.uint16):
+        return 2
+    if dtype in (torch.float32, torch.int32, torch.uint32):
+        return 4
+    if dtype in (torch.float64, torch.int64, torch.uint64):
+        return 8
+    # Fallback for unexpected dtypes.
+    try:
+        return torch.tensor([], dtype=dtype).element_size()
+    except Exception:
+        return 4
+
+
+def _resolve_device(device: str) -> str:
+    if device == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        print(f"WARNING: device={device!r} requested but CUDA not available; falling back to CPU.")
+        return "cpu"
+    return device
 
 
 def load_memmap(path: Path, dtype: str) -> np.memmap:
@@ -129,7 +152,7 @@ def main():
     conf = get_conf()
     batch_size = conf["batch_size"]
     context_length = conf["context_length"]
-    device = conf["device"]
+    device = _resolve_device(conf["device"])
     data_dtype = conf.get("data_dtype", conf.get("dtype", "uint16"))
     model_dtype_str = conf.get("model_dtype", "float32")
     model_dtype = _torch_dtype_from_str(model_dtype_str) or torch.float32
@@ -139,6 +162,7 @@ def main():
     vocab_path = _resolve_path(conf["vocab"])
     merges_path = _resolve_path(conf["merges"])
     tokenizer = Tokenizer.from_files(str(vocab_path), str(merges_path), conf["special_tokens"])
+
     train_data = _load_token_dataset(train_data_path, tokenizer, data_dtype)
     val_data = _load_token_dataset(val_data_path, tokenizer, data_dtype)
     print(f"load data succ")
@@ -164,12 +188,6 @@ def main():
     )
 
     # 3. start training loop
-    # Avoid interactive wandb login prompts by default.
-    wandb_mode = conf.get("wandb_mode")
-    if wandb_mode is None:
-        wandb_mode = "online" if os.environ.get("WANDB_API_KEY") else "disabled"
-    if conf.get("wandb_project"):
-        wandb.init(project=conf["wandb_project"], name=conf["wandb_run_name"], config=conf, mode=wandb_mode)
     start_iter = 0
     if conf["resume"]:
         start_iter = load_checkpoint(conf["resume"], model, optimizer)
@@ -177,6 +195,13 @@ def main():
 
     ckpt_dir = _resolve_path(conf["ckpt_dir"])
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+    print("training loop start")
+
+    bytes_per_logit_elem = _bytes_per_elem(model_dtype)
+    bytes_per_example_logits = context_length * conf["vocab_size"] * bytes_per_logit_elem
+    est_full_mb = (batch_size * bytes_per_example_logits) / (1024 * 1024)
+    print(f"est_full_mb = {est_full_mb}")
+
     for iter in range(start_iter, conf["max_iter"]):
         lr = lr_cosine_schedule(
             iter, conf["lr_max"], conf["lr_min"], conf["warmup_iters"], conf["cosine_iters"]
@@ -187,6 +212,7 @@ def main():
         xb, yb = get_batch(train_data, batch_size, context_length, device)
         logits = model(xb)
         loss = cross_entropy(logits, yb)
+        print(f"loss = {loss.item()}")
 
         optimizer.zero_grad()
         loss.backward()
@@ -196,8 +222,6 @@ def main():
         if conf["eval_iter"] and iter % conf["eval_iter"] == 0:
             losses = estimate_loss(model, train_data, val_data, batch_size, context_length, device, conf["eval_runs"])
             print(f"iter = {iter}, train_loss = {losses['train']}, val_loss = {losses['val']}")
-            if wandb.run is not None:
-                wandb.log({"iter": iter, "train_loss": losses["train"], "val_loss": losses["val"]})
 
         if conf["ckpt_iter"] and iter % conf["ckpt_iter"] == 0:
             ckpt_path = ckpt_dir / f"iter_{iter:06d}.pt"
@@ -210,8 +234,6 @@ def main():
 
     losses = estimate_loss(model, train_data, val_data, batch_size, context_length, device, conf["eval_runs"])
     print(f"final train_loss = {losses['train']}, val_loss = {losses['val']}")
-    if wandb.run is not None:
-        wandb.finish()
 
 
 if __name__ == "__main__":

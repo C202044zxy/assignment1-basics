@@ -184,6 +184,42 @@ def train_bpe(
     return (vocab, merges)
 
 
+def _gpt2_bytes_to_unicode() -> dict[int, str]:
+    """
+    Returns a mapping between every possible byte (0..255) and a printable unicode
+    representation. This is the same mapping used by the GPT-2 tokenizer.
+    """
+    bs = (
+        list(range(ord("!"), ord("~") + 1))
+        + list(range(ord("¡"), ord("¬") + 1))
+        + list(range(ord("®"), ord("ÿ") + 1))
+    )
+    cs = bs[:]
+    n = 0
+    for b in range(2**8):
+        if b not in bs:
+            bs.append(b)
+            cs.append(2**8 + n)
+            n += 1
+    return dict(zip(bs, [chr(n) for n in cs]))
+
+def save_vocab_gpt2(vocab: dict[int, bytes], vocab_path: str):
+    byte_encoder = _gpt2_bytes_to_unicode()
+    vocab_gpt2 = {}
+    for token_id, token_bytes in vocab.items():
+        token_str = "".join(byte_encoder[x] for x in token_bytes)
+        vocab_gpt2[token_str] = token_id
+    with open(vocab_path, mode="w", encoding="utf-8") as f:
+        json.dump(vocab_gpt2, f, ensure_ascii=False, indent=2)
+
+def save_merges_gpt2(merges: list[tuple[bytes, bytes]], merges_path: str):
+    byte_encoder = _gpt2_bytes_to_unicode()
+    with open(merges_path, mode="w", encoding="utf-8") as f:
+        for a, b in merges:
+            a_str = "".join(byte_encoder[x] for x in a)
+            b_str = "".join(byte_encoder[x] for x in b)
+            f.write(f"{a_str} {b_str}\n")
+
 class Tokenizer:
     def __init__(
         self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None = None
@@ -195,27 +231,6 @@ class Tokenizer:
         # Build merge priority lookup: pair -> priority (lower = higher priority)
         self._merge_priority: dict[tuple[bytes, bytes], int] = {pair: i for i, pair in enumerate(merges)}
 
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def _gpt2_bytes_to_unicode() -> dict[int, str]:
-        """
-        Returns a mapping between every possible byte (0..255) and a printable unicode
-        representation. This is the same mapping used by the GPT-2 tokenizer.
-        """
-        bs = (
-            list(range(ord("!"), ord("~") + 1))
-            + list(range(ord("¡"), ord("¬") + 1))
-            + list(range(ord("®"), ord("ÿ") + 1))
-        )
-        cs = bs[:]
-        n = 0
-        for b in range(2**8):
-            if b not in bs:
-                bs.append(b)
-                cs.append(2**8 + n)
-                n += 1
-        return dict(zip(bs, [chr(n) for n in cs]))
-
     @classmethod
     def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None) -> "Tokenizer":
         """
@@ -226,7 +241,7 @@ class Tokenizer:
         The token strings use GPT-2's reversible byte<->unicode mapping; we decode them
         back into raw bytes for this assignment's tokenizer representation.
         """
-        byte_encoder = cls._gpt2_bytes_to_unicode()
+        byte_encoder = _gpt2_bytes_to_unicode()
         byte_decoder = {v: k for k, v in byte_encoder.items()}
 
         with open(vocab_filepath, "r", encoding="utf-8") as vocab_f:
@@ -346,3 +361,13 @@ class Tokenizer:
                     tokens = self._apply_merges(chunk)
                     for token in tokens:
                         yield self._vocab_inverse[token]
+
+if __name__ == "__main__":
+    input_path = "/home/lockzhou/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt"
+    vocab_path = "/home/lockzhou/assignment1-basics/data/vocab.json"
+    merges_path = "/home/lockzhou/assignment1-basics/data/merges.txt"
+    vocab_size = 10000
+    special_tokens = ["<|endoftext|>"]
+    vocab, merges = train_bpe(input_path, vocab_size, special_tokens)
+    save_vocab_gpt2(vocab, vocab_path)
+    save_merges_gpt2(merges, merges_path)

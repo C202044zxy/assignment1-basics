@@ -12,11 +12,12 @@ def cross_entropy(
     inputs = inputs.reshape(-1, inputs.shape[-1])
     targets = targets.reshape(-1)
     max_logit = inputs.max(dim=-1, keepdim=True).values
-    inputs -= max_logit
+    # Avoid materializing a huge exp(inputs) tensor; use logsumexp for stability and memory.
+    inputs = inputs - max_logit
     batch_size = inputs.shape[0]
     correct_logits = inputs[torch.arange(batch_size), targets]
 
-    losses = -correct_logits + torch.log(torch.sum(torch.exp(inputs), dim=-1))
+    losses = -correct_logits + torch.logsumexp(inputs, dim=-1)
     return losses.mean()
 
 
@@ -69,5 +70,6 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
     l2_norm = math.sqrt(l2_norm_sq)
     if l2_norm <= max_l2_norm:
         return
+    scale = max_l2_norm / (l2_norm + 1e-6)
     for param in param_list:
-        param.grad = param.grad * (max_l2_norm / (l2_norm + 1e-6))
+        param.grad.mul_(scale)

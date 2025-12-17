@@ -5,18 +5,18 @@
   "model_dtype": "float32",
 
   "batch_size": 64,
-  "context_length": 256,
-  "device": "cpu",
+  "context_length": 128,
+  "device": "auto",
 
-  "vocab": "tests/fixtures/gpt2_vocab.json",
-  "merges": "tests/fixtures/gpt2_merges.txt",
+  "vocab": "data/vocab.json",
+  "merges": "data/merges.txt",
   "special_tokens": ["<|endoftext|>"],
 
-  "vocab_size": 50257,
+  "vocab_size": 9999,
   "d_model": 512,
-  "num_layers": 8,
-  "num_heads": 8,
-  "d_ff": 2048,
+  "num_layers": 4,
+  "num_heads": 16,
+  "d_ff": 1344,
   "rope_theta": 10000.0,
 
   "lr": 3e-4,
@@ -24,10 +24,6 @@
   "beta1": 0.9,
   "beta2": 0.95,
   "eps": 1e-8,
-
-  "wandb_project": "cs336-basics",
-  "wandb_run_name": "transformer-lm-run",
-  "wandb_mode": "disabled",
 
   "resume": "",
   "ckpt_dir": "checkpoints",
@@ -39,7 +35,7 @@
   "grad_clip": 1.0,
   "eval_iter": 500,
   "eval_runs": 10,
-  "ckpt_iter": 1000
+  "ckpt_iter": 0
 }
 
 
