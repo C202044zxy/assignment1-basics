@@ -12,57 +12,6 @@ from cs336_basics.optimizer import *
 from cs336_basics.utils import *
 from cs336_basics.bpe import Tokenizer
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-conf_DIR = ROOT_DIR / "config"
-
-
-def get_conf() -> dict:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--conf", type=str, default=conf_DIR / "config.json")
-    args = parser.parse_args()
-    with open(args.conf, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data
-
-
-def _resolve_path(p: str | os.PathLike) -> Path:
-    path = Path(p)
-    return path if path.is_absolute() else (ROOT_DIR / path).resolve()
-
-
-def _torch_dtype_from_str(dtype: str | None) -> torch.dtype | None:
-    if dtype is None:
-        return None
-    if isinstance(dtype, str):
-        # Accept common strings like "float32", "bfloat16", etc.
-        t = getattr(torch, dtype, None)
-        return t if isinstance(t, torch.dtype) else None
-    return None
-
-
-def _bytes_per_elem(dtype: torch.dtype) -> int:
-    # Minimal mapping for common dtypes used in this repo.
-    if dtype in (torch.float16, torch.bfloat16, torch.int16, torch.uint16):
-        return 2
-    if dtype in (torch.float32, torch.int32, torch.uint32):
-        return 4
-    if dtype in (torch.float64, torch.int64, torch.uint64):
-        return 8
-    # Fallback for unexpected dtypes.
-    try:
-        return torch.tensor([], dtype=dtype).element_size()
-    except Exception:
-        return 4
-
-
-def _resolve_device(device: str) -> str:
-    if device == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    if device.startswith("cuda") and not torch.cuda.is_available():
-        print(f"WARNING: device={device!r} requested but CUDA not available; falling back to CPU.")
-        return "cpu"
-    return device
-
 
 def load_memmap(path: Path, dtype: str) -> np.memmap:
     if not path.exists():
@@ -148,19 +97,23 @@ def estimate_loss(
 
 
 def main():
-    # 1. read conf and load data. Do tokenization.
-    conf = get_conf()
+    # 1. read conf and load data. Do tokenization.    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--conf", type=str, default=CONF_DIR / "config.json")
+    args = parser.parse_args()
+    conf = get_conf(args.conf)
+
     batch_size = conf["batch_size"]
     context_length = conf["context_length"]
-    device = _resolve_device(conf["device"])
+    device = resolve_device(conf["device"])
     data_dtype = conf.get("data_dtype", conf.get("dtype", "uint16"))
     model_dtype_str = conf.get("model_dtype", "float32")
-    model_dtype = _torch_dtype_from_str(model_dtype_str) or torch.float32
+    model_dtype = torch_dtype_from_str(model_dtype_str) or torch.float32
 
-    train_data_path = _resolve_path(conf["train_data"])
-    val_data_path = _resolve_path(conf["val_data"])
-    vocab_path = _resolve_path(conf["vocab"])
-    merges_path = _resolve_path(conf["merges"])
+    train_data_path = resolve_path(conf["train_data"])
+    val_data_path = resolve_path(conf["val_data"])
+    vocab_path = resolve_path(conf["vocab"])
+    merges_path = resolve_path(conf["merges"])
     tokenizer = Tokenizer.from_files(str(vocab_path), str(merges_path), conf["special_tokens"])
 
     train_data = _load_token_dataset(train_data_path, tokenizer, data_dtype)
@@ -193,11 +146,11 @@ def main():
         start_iter = load_checkpoint(conf["resume"], model, optimizer)
         print(f"load checkpoint at iteration {start_iter} from file {conf['resume']}")
 
-    ckpt_dir = _resolve_path(conf["ckpt_dir"])
+    ckpt_dir = resolve_path(conf["ckpt_dir"])
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     print("training loop start")
 
-    bytes_per_logit_elem = _bytes_per_elem(model_dtype)
+    bytes_per_logit_elem = bytes_per_elem(model_dtype)
     bytes_per_example_logits = context_length * conf["vocab_size"] * bytes_per_logit_elem
     est_full_mb = (batch_size * bytes_per_example_logits) / (1024 * 1024)
     print(f"est_full_mb = {est_full_mb}")

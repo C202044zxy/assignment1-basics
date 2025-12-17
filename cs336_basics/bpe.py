@@ -6,6 +6,8 @@ from typing import BinaryIO
 from multiprocessing import Pool
 from functools import lru_cache
 
+from cs336_basics.utils import *
+
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -368,9 +370,9 @@ class Tokenizer:
                         yield self._vocab_inverse[token]
 
 if __name__ == "__main__":
-    input_path = "/home/lockzhou/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt"
-    vocab_path = "/home/lockzhou/assignment1-basics/data/vocab.json"
-    merges_path = "/home/lockzhou/assignment1-basics/data/merges.txt"
+    input_path = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
+    vocab_path = DATA_DIR / "vocab.json"
+    merges_path = DATA_DIR / "merges.txt"
     vocab_size = 10000
     special_tokens = ["<|endoftext|>"]
     vocab, merges = train_bpe(input_path, vocab_size, special_tokens)

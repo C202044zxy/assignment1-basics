@@ -35,7 +35,9 @@
   "grad_clip": 1.0,
   "eval_iter": 500,
   "eval_runs": 10,
-  "ckpt_iter": 0
+  "ckpt_iter": 0,
+
+  "model_path": "checkpoints/final.pt"
 }
 
 
