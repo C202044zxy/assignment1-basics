@@ -72,8 +72,8 @@ class SwiGLU(nn.Module):
 class RoPE(nn.Module):
     def __init__(self, theta: float, d_k: int, max_seq_len: int, device: torch.device | None = None):
         super().__init__()
-        i = torch.arange(0, max_seq_len).float()[:, None]
-        j = torch.arange(0, d_k, 2).float()[None, :]
+        i = torch.arange(0, max_seq_len, device=device, dtype=torch.float32)[:, None]
+        j = torch.arange(0, d_k, 2, device=device, dtype=torch.float32)[None, :]
         theta_ij = i / (theta ** (j / d_k))
         # self.cos = torch.cos(theta_ij)
         # self.sin = torch.sin(theta_ij)
@@ -81,6 +81,7 @@ class RoPE(nn.Module):
         self.register_buffer("sin", torch.sin(theta_ij), persistent=False)
 
     def forward(self, x: Tensor, token_positions: Tensor) -> Tensor:
+        token_positions = token_positions.to(dtype=torch.long)
         cos_pos = self.cos[token_positions, :]
         sin_pos = self.sin[token_positions, :]
         q0 = x[..., 0::2]

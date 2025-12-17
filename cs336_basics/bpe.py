@@ -118,15 +118,18 @@ def merge_optimized(
     merged_table = {}
     for key, value in frequency_table.items():
         new_key = []
+        prev_token: bytes | None = None
         i = 0
         while i < len(key):
             if i + 1 < len(key) and key[i] == best_pair[0] and key[i + 1] == best_pair[1]:
                 # Before merging: ... [i-1] [i] [i+1] [i+2] ...
                 # After merging:  ... [i-1] [merged] [i+2] ...
 
-                # Decrement count for pair (key[i-1], key[i]) - it no longer exists
-                if i > 0:
-                    old_left_pair = (key[i - 1], key[i])
+                # IMPORTANT: use the last emitted token as the "left neighbor".
+                # Using `key[i-1]` is wrong because `key[i-1]` may have been merged
+                # earlier in this same scan, so the true left neighbor is `new_key[-1]`.
+                if prev_token is not None:
+                    old_left_pair = (prev_token, key[i])
                     pair_count[old_left_pair] = pair_count.get(old_left_pair, 0) - value
                     if pair_count[old_left_pair] <= 0:
                         pair_count.pop(old_left_pair, None)
@@ -138,9 +141,9 @@ def merge_optimized(
                     if pair_count[old_right_pair] <= 0:
                         pair_count.pop(old_right_pair, None)
 
-                # Increment count for new pair (key[i-1], merged_token)
-                if i > 0:
-                    new_left_pair = (key[i - 1], merged_token)
+                # Increment count for new pair (prev_token, merged_token)
+                if prev_token is not None:
+                    new_left_pair = (prev_token, merged_token)
                     pair_count[new_left_pair] = pair_count.get(new_left_pair, 0) + value
 
                 # Increment count for new pair (merged_token, key[i+2])
@@ -149,9 +152,11 @@ def merge_optimized(
                     pair_count[new_right_pair] = pair_count.get(new_right_pair, 0) + value
 
                 new_key.append(merged_token)
+                prev_token = merged_token
                 i += 2
             else:
                 new_key.append(key[i])
+                prev_token = key[i]
                 i += 1
 
         merged_table[tuple(new_key)] = merged_table.get(tuple(new_key), 0) + value

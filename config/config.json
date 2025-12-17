@@ -12,7 +12,7 @@
   "merges": "data/merges.txt",
   "special_tokens": ["<|endoftext|>"],
 
-  "vocab_size": 9999,
+  "vocab_size": 10000,
   "d_model": 512,
   "num_layers": 4,
   "num_heads": 16,
