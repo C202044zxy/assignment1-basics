@@ -9,6 +9,8 @@ import math
 def cross_entropy(
     inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
 ) -> Float[Tensor, ""]:
+    inputs = inputs.reshape(-1, inputs.shape[-1])
+    targets = targets.reshape(-1)
     max_logit = inputs.max(dim=-1, keepdim=True).values
     inputs -= max_logit
     batch_size = inputs.shape[0]

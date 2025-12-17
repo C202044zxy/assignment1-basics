@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator
 import os
 from typing import BinaryIO
 from multiprocessing import Pool
+from functools import lru_cache
 
 
 def find_chunk_boundaries(
@@ -193,6 +194,77 @@ class Tokenizer:
         self._vocab_inverse: dict[bytes, int] = {value: key for key, value in vocab.items()}
         # Build merge priority lookup: pair -> priority (lower = higher priority)
         self._merge_priority: dict[tuple[bytes, bytes], int] = {pair: i for i, pair in enumerate(merges)}
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _gpt2_bytes_to_unicode() -> dict[int, str]:
+        """
+        Returns a mapping between every possible byte (0..255) and a printable unicode
+        representation. This is the same mapping used by the GPT-2 tokenizer.
+        """
+        bs = (
+            list(range(ord("!"), ord("~") + 1))
+            + list(range(ord("¡"), ord("¬") + 1))
+            + list(range(ord("®"), ord("ÿ") + 1))
+        )
+        cs = bs[:]
+        n = 0
+        for b in range(2**8):
+            if b not in bs:
+                bs.append(b)
+                cs.append(2**8 + n)
+                n += 1
+        return dict(zip(bs, [chr(n) for n in cs]))
+
+    @classmethod
+    def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None) -> "Tokenizer":
+        """
+        Load a GPT-2 style tokenizer from:
+        - `vocab_filepath`: JSON mapping token_string -> token_id
+        - `merges_filepath`: text file with one merge per line: "<token1> <token2>"
+
+        The token strings use GPT-2's reversible byte<->unicode mapping; we decode them
+        back into raw bytes for this assignment's tokenizer representation.
+        """
+        byte_encoder = cls._gpt2_bytes_to_unicode()
+        byte_decoder = {v: k for k, v in byte_encoder.items()}
+
+        with open(vocab_filepath, "r", encoding="utf-8") as vocab_f:
+            gpt2_vocab: dict[str, int] = json.load(vocab_f)
+
+        vocab: dict[int, bytes] = {
+            token_id: bytes([byte_decoder[ch] for ch in token_str]) for token_str, token_id in gpt2_vocab.items()
+        }
+
+        merges: list[tuple[bytes, bytes]] = []
+        with open(merges_filepath, "r", encoding="utf-8") as merges_f:
+            for line in merges_f:
+                cleaned = line.rstrip("\n")
+                if not cleaned:
+                    continue
+                parts = cleaned.split(" ")
+                if len(parts) != 2:
+                    # e.g. GPT-2 merge files often include a header like "#version: 0.2"
+                    continue
+                t1, t2 = parts
+                merges.append(
+                    (
+                        bytes([byte_decoder[ch] for ch in t1]),
+                        bytes([byte_decoder[ch] for ch in t2]),
+                    )
+                )
+
+        if special_tokens:
+            existing = set(vocab.values())
+            next_id = (max(vocab.keys()) + 1) if vocab else 0
+            for special_token in special_tokens:
+                b = special_token.encode("utf-8")
+                if b not in existing:
+                    vocab[next_id] = b
+                    existing.add(b)
+                    next_id += 1
+
+        return cls(vocab, merges, special_tokens)
 
     def _pretokenize(self, text: str) -> list[bytes]:
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
